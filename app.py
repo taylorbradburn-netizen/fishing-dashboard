@@ -1,7 +1,7 @@
 import time
 import requests
+import anthropic
 from datetime import datetime
-from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template
 
 app = Flask(__name__)
@@ -39,13 +39,6 @@ RIVER_MAP = {r["id"]: r for r in RIVERS}
 # ---------------------------------------------------------------------------
 # Static river guide & hatch data
 # ---------------------------------------------------------------------------
-
-# Keywords used to locate a river in scraped report text
-RIVER_KEYWORDS = {
-    "13190500": ["south fork boise", "sf boise", "s.f. boise", "anderson ranch", "south fork of the boise"],
-    "13183000": ["owyhee"],
-    "13150430": ["silver creek"],
-}
 
 # Hatch chart by river site_id → month (1-12) → list of patterns
 HATCH_CHART = {
@@ -122,9 +115,6 @@ _cache = {}
 RIVER_TTL = 15 * 60    # 15 minutes
 WEATHER_TTL = 60 * 60  # 60 minutes
 REPORT_TTL = 4 * 60 * 60  # 4 hours
-
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; FishingDashboard/1.0)"}
-
 
 def cached(key, ttl, fetch_fn):
     entry = _cache.get(key)
@@ -235,150 +225,70 @@ def fetch_weather(site_id):
 
 
 # ---------------------------------------------------------------------------
-# Fishing report scraping
+# AI fishing report generation
 # ---------------------------------------------------------------------------
 
-def _find_article_url(listing_url, base_url, path_fragment, exclude_url=None):
-    """Return the URL of the first article found on a blog listing page."""
-    resp = requests.get(listing_url, timeout=15, headers=HEADERS)
-    soup = BeautifulSoup(resp.text, "html.parser")
+def generate_report(site_id):
+    """Generate a fishing report using Claude based on live flow and weather data."""
+    river = RIVER_MAP[site_id]
+    guide = RIVER_GUIDE.get(site_id, {})
+    month = datetime.now().month
+    month_name = datetime.now().strftime("%B")
+    hatches = HATCH_CHART.get(site_id, {}).get(month, [])
 
-    def make_full(href):
-        if href.startswith("http"):
-            return href
-        return base_url.rstrip("/") + ("" if href.startswith("/") else "/") + href
+    # Fetch live data to inform the report
+    try:
+        usgs = fetch_usgs()
+        river_data = usgs.get(site_id, {})
+        flow = river_data.get("current_cfs")
+        water_temp = river_data.get("water_temp_f")
+    except Exception:
+        flow, water_temp = None, None
 
-    seen = set()
+    try:
+        weather = fetch_weather(site_id)
+        pressure = weather.get("current_pressure_inhg")
+        pressure_trend = weather.get("pressure_trend")
+        temp_min = weather.get("temp_min_f")
+        temp_max = weather.get("temp_max_f")
+        precip = weather.get("precip_total_in", 0)
+        wind = weather.get("wind_avg_mph")
+    except Exception:
+        pressure = pressure_trend = temp_min = temp_max = wind = None
+        precip = 0
 
-    # Prefer links inside <article> or heading tags
-    for container in soup.find_all(["article", "h2", "h3"]):
-        for a in container.find_all("a", href=True):
-            href = a["href"]
-            full = make_full(href)
-            if full in seen or full == exclude_url:
-                continue
-            if path_fragment in href:
-                seen.add(full)
-                return full
+    prompt = f"""You are an expert fly fishing guide writing a current fishing report for {river['full_name']}.
 
-    # Fallback: any matching link
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        full = make_full(href)
-        if full in seen or full == exclude_url:
-            continue
-        if path_fragment in href:
-            seen.add(full)
-            return full
+Current conditions:
+- Flow: {flow} CFS
+- Water temperature: {water_temp}°F
+- Air temp range (past 7 days): {temp_min}–{temp_max}°F
+- Barometric pressure: {pressure} inHg ({pressure_trend})
+- Precipitation (past 7 days): {precip} inches
+- Wind avg: {wind} mph
+- Month: {month_name}
+- Active hatches: {', '.join(hatches) if hatches else 'None listed'}
 
-    return None
+River character: {guide.get('character', '')}
+Recommended techniques: {guide.get('techniques', '')}
+Species: {guide.get('species', '')}
+Notes: {guide.get('notes', '')}
 
+Write a 3–4 sentence fishing report in the style of a knowledgeable local guide. Be specific about current flows, expected hatches, recommended flies, and tactics. Keep it practical and concise."""
 
-def _parse_article(url, source_name):
-    """
-    Fetch a fishing report article and extract per-river text sections.
-    Returns dict: {site_id: {text, source, url, date}}
-    """
-    resp = requests.get(url, timeout=15, headers=HEADERS)
-    soup = BeautifulSoup(resp.text, "html.parser")
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=400,
+        messages=[{"role": "user", "content": prompt}],
+    )
 
-    # Extract publish date
-    date_str = None
-    time_el = soup.find("time")
-    if time_el:
-        date_str = time_el.get("datetime", time_el.get_text(strip=True))
-    if not date_str:
-        meta = soup.find("meta", property="article:published_time")
-        if meta:
-            date_str = meta.get("content", "")[:10]
-
-    # Format date nicely if ISO
-    if date_str and len(date_str) >= 10:
-        try:
-            dt = datetime.fromisoformat(date_str[:10])
-            date_str = dt.strftime("%B %-d, %Y")
-        except ValueError:
-            pass
-
-    # Strip non-content tags
-    for tag in soup(["script", "style", "nav", "header", "footer", "noscript", "aside"]):
-        tag.decompose()
-
-    lines = [
-        line.strip()
-        for line in soup.get_text(separator="\n").splitlines()
-        if line.strip() and len(line.strip()) > 4
-    ]
-
-    sections = {}
-    all_keywords = {kw: sid for sid, kws in RIVER_KEYWORDS.items() for kw in kws}
-
-    for i, line in enumerate(lines):
-        line_lower = line.lower()
-        for kw, site_id in all_keywords.items():
-            if kw in line_lower and site_id not in sections:
-                # Collect lines until we hit a different river's keyword
-                other_kws = {k for k, s in all_keywords.items() if s != site_id}
-                block = []
-                for j in range(i, min(i + 25, len(lines))):
-                    if j > i and any(ok in lines[j].lower() for ok in other_kws):
-                        break
-                    block.append(lines[j])
-                if block:
-                    sections[site_id] = {
-                        "text": "\n".join(block),
-                        "source": source_name,
-                        "url": url,
-                        "date": date_str,
-                    }
-                break
-
-    return sections
-
-
-REPORT_SOURCES = [
-    {
-        "name": "Idaho Angler",
-        "listing_url": "https://idahoangler.com/blogs/fishing-report",
-        "base_url": "https://idahoangler.com",
-        "path_fragment": "/blogs/fishing-report/",
-    },
-    {
-        "name": "TRR Outfitters",
-        "listing_url": "https://trroutfitters.com/category/fishing-reports/boise-river-fly-fishing-report/",
-        "base_url": "https://trroutfitters.com",
-        "path_fragment": "trroutfitters.com/",
-    },
-]
-
-
-def fetch_reports():
-    """Scrape multiple sources and merge per-river report sections."""
-    merged = {}
-
-    for source in REPORT_SOURCES:
-        try:
-            article_url = _find_article_url(
-                source["listing_url"],
-                source["base_url"],
-                source["path_fragment"],
-                exclude_url=source["listing_url"],
-            )
-            if not article_url:
-                continue
-            sections = _parse_article(article_url, source["name"])
-            for site_id, section in sections.items():
-                existing = merged.get(site_id)
-                if not existing:
-                    merged[site_id] = section
-                else:
-                    # Keep more recently dated report
-                    if (section.get("date") or "") > (existing.get("date") or ""):
-                        merged[site_id] = section
-        except Exception as e:
-            print(f"Report scraping error ({source['name']}): {e}")
-
-    return merged
+    return {
+        "text": response.content[0].text,
+        "source": "AI Report",
+        "date": datetime.now().strftime("%B %-d, %Y"),
+        "url": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -428,14 +338,16 @@ def api_weather(site_id):
 def api_reports(site_id):
     if site_id not in RIVER_MAP:
         return jsonify({"error": "Unknown site"}), 404
+
     try:
-        all_reports = cached("reports_all", REPORT_TTL, fetch_reports)
+        live_report = cached(f"report_{site_id}", REPORT_TTL, lambda: generate_report(site_id))
     except Exception as e:
-        all_reports = {}
+        print(f"Report generation error ({site_id}): {e}")
+        live_report = None
 
     month = datetime.now().month
     return jsonify({
-        "live_report": all_reports.get(site_id),
+        "live_report": live_report,
         "current_hatch": HATCH_CHART.get(site_id, {}).get(month, []),
         "guide": RIVER_GUIDE.get(site_id, {}),
         "month_name": datetime.now().strftime("%B"),
@@ -443,4 +355,4 @@ def api_reports(site_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=5001)

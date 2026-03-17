@@ -259,7 +259,7 @@ def generate_report(site_id):
 
     prompt = f"""You are an expert fly fishing guide writing a current fishing report for {river['full_name']}.
 
-Current conditions from sensors:
+Current conditions:
 - Flow: {flow} CFS
 - Water temperature: {water_temp}°F
 - Air temp range (past 7 days): {temp_min}–{temp_max}°F
@@ -274,29 +274,15 @@ Recommended techniques: {guide.get('techniques', '')}
 Species: {guide.get('species', '')}
 Notes: {guide.get('notes', '')}
 
-Search the web for recent fishing reports, trip reports, or current conditions for {river['full_name']} to supplement the sensor data above. Then write a 4–6 sentence fishing report in the style of a knowledgeable local guide. Be specific about current flows, expected hatches, recommended flies, and tactics. Incorporate any recent angler reports you find. Keep it practical and concise."""
+Write a 3–4 sentence fishing report in the style of a knowledgeable local guide. Be specific about current flows, expected hatches, recommended flies, and tactics. Keep it practical and concise."""
 
     client = anthropic.Anthropic()
-    messages = [{"role": "user", "content": prompt}]
-
-    # Web search is server-side — API handles searches automatically.
-    # Loop only needed if server hits pause_turn (iteration limit).
-    max_continuations = 5
-    for _ in range(max_continuations):
-        response = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=1024,
-            tools=[{"type": "web_search_20260209", "name": "web_search"}],
-            messages=messages,
-        )
-        if response.stop_reason == "end_turn":
-            break
-        if response.stop_reason == "pause_turn":
-            messages.append({"role": "assistant", "content": response.content})
-            continue
-        break
-
-    text = next((b.text for b in response.content if b.type == "text"), "")
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=400,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = response.content[0].text
 
     return {
         "text": text,

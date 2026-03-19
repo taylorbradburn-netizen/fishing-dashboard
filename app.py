@@ -335,6 +335,20 @@ def api_weather(site_id):
     return jsonify(data)
 
 
+@app.route("/api/weather-all")
+def api_weather_all():
+    result = {}
+    for river in RIVERS:
+        site_id = river["id"]
+        try:
+            data = cached(f"weather_{site_id}", WEATHER_TTL, lambda s=site_id: fetch_weather(s))
+            result[site_id] = data
+        except Exception as e:
+            result[site_id] = {"error": str(e)}
+        time.sleep(0.5)
+    return jsonify(result)
+
+
 @app.route("/api/reports/<site_id>")
 def api_reports(site_id):
     if site_id not in RIVER_MAP:

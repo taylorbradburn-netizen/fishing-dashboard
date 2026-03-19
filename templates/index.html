@@ -274,10 +274,8 @@
       }
     }
 
-    async function loadWeather(riverId) {
-      const resp = await fetch(`/api/weather/${riverId}`);
-      const data = await resp.json();
-      if (data.error) { console.error(data.error); return; }
+    function applyWeather(riverId, data) {
+      if (!data || data.error) { console.error('Weather error', riverId, data && data.error); return; }
 
       const pressEl = document.getElementById(`pressure-${riverId}`);
       if (pressEl) pressEl.textContent = data.current_pressure_inhg != null ? `${data.current_pressure_inhg} inHg` : 'N/A';
@@ -302,6 +300,14 @@
 
       const windEl = document.getElementById(`wind-${riverId}`);
       if (windEl) windEl.textContent = data.wind_avg_mph != null ? `${data.wind_avg_mph} mph` : 'N/A';
+    }
+
+    async function loadAllWeather() {
+      const resp = await fetch('/api/weather-all');
+      const allData = await resp.json();
+      for (const riverId of Object.keys(allData)) {
+        applyWeather(riverId, allData[riverId]);
+      }
     }
 
     async function loadReport(riverId) {
@@ -376,7 +382,7 @@
 
       try {
         await loadRivers();
-        await Promise.all(RIVERS.map(r => loadWeather(r.id)));
+        await loadAllWeather();
         await Promise.all(RIVERS.map(r => loadReport(r.id)));
 
         const now = new Date().toLocaleString('en-US', {

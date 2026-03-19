@@ -1,7 +1,7 @@
 import time
 import requests
 import anthropic
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template
 
 app = Flask(__name__)
@@ -171,56 +171,73 @@ def fetch_usgs():
 
 def fetch_weather(site_id):
     river = RIVER_MAP[site_id]
-    url = (
-        "https://api.open-meteo.com/v1/forecast"
-        f"?latitude={river['lat']}&longitude={river['lon']}"
-        "&hourly=surface_pressure,temperature_2m,precipitation,wind_speed_10m"
-        "&temperature_unit=fahrenheit"
-        "&wind_speed_unit=mph"
-        "&precipitation_unit=inch"
-        "&past_days=7&forecast_days=1&timezone=America%2FBoise"
+    lat, lon = river["lat"], river["lon"]
+    headers = {"User-Agent": "fishing-dashboard/1.0"}
+
+    # Resolve NWS grid and observation stations
+    r = requests.get(f"https://api.weather.gov/points/{lat},{lon}", headers=headers, timeout=15)
+    r.raise_for_status()
+    props = r.json()["properties"]
+
+    # Gridpoint data for temperature, wind, precipitation
+    r = requests.get(props["forecastGridData"], headers=headers, timeout=30)
+    r.raise_for_status()
+    grid = r.json()["properties"]
+
+    def parse_vals(key, convert=None):
+        out = []
+        for v in grid.get(key, {}).get("values", []):
+            val = v.get("value")
+            if val is not None:
+                out.append(convert(val) if convert else val)
+        return out
+
+    temps_f    = parse_vals("temperature",               lambda c: round(c * 9/5 + 32, 1))
+    winds_mph  = parse_vals("windSpeed",                 lambda k: round(k * 0.621371, 1))
+    precips_in = parse_vals("quantitativePrecipitation", lambda mm: mm * 0.0393701)
+
+    # Observation station pressure history (7 days)
+    stations_r = requests.get(props["observationStations"], headers=headers, timeout=15)
+    stations_r.raise_for_status()
+    station_id = stations_r.json()["features"][0]["properties"]["stationIdentifier"]
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=7)
+    obs_url = (
+        f"https://api.weather.gov/stations/{station_id}/observations"
+        f"?start={start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        f"&end={end.strftime('%Y-%m-%dT%H:%M:%SZ')}&limit=168"
     )
-    resp = requests.get(url, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
+    obs_r = requests.get(obs_url, headers=headers, timeout=15)
+    obs_r.raise_for_status()
+    observations = list(reversed(obs_r.json()["features"]))  # oldest first
 
-    hourly = data.get("hourly", {})
-    times = hourly.get("time", [])
-    pressures = hourly.get("surface_pressure", [])
-    temps = hourly.get("temperature_2m", [])
-    precip = hourly.get("precipitation", [])
-    wind = hourly.get("wind_speed_10m", [])
+    press_inhg, times = [], []
+    for obs in observations:
+        p = obs["properties"].get("barometricPressure", {}).get("value")
+        t = obs["properties"].get("timestamp")
+        if p is not None and t:
+            press_inhg.append(round(p * 0.0002953, 2))
+            times.append(t)
 
-    def to_inhg(hpa):
-        return round(hpa * 0.02953, 2) if hpa is not None else None
-
-    pressure_inhg = [to_inhg(p) for p in pressures]
-    current_pressure = next((p for p in reversed(pressure_inhg) if p is not None), None)
-
+    current_pressure = press_inhg[-1] if press_inhg else None
     trend = "Steady"
-    if len(pressures) >= 4:
-        recent = next((p for p in reversed(pressures) if p is not None), None)
-        older = next((p for p in reversed(pressures[:-3]) if p is not None), None)
-        if recent is not None and older is not None:
-            diff = recent - older
-            if diff > 1:
-                trend = "Rising"
-            elif diff < -1:
-                trend = "Falling"
-
-    past_temps = [t for t in temps if t is not None]
-    past_precip = [p for p in precip if p is not None]
-    past_wind = [w for w in wind if w is not None]
+    if len(press_inhg) >= 4:
+        diff = press_inhg[-1] - press_inhg[-4]
+        if diff > 0.02:
+            trend = "Rising"
+        elif diff < -0.02:
+            trend = "Falling"
 
     return {
         "times": times,
-        "pressure_inhg": pressure_inhg,
+        "pressure_inhg": press_inhg,
         "current_pressure_inhg": current_pressure,
         "pressure_trend": trend,
-        "temp_min_f": round(min(past_temps), 1) if past_temps else None,
-        "temp_max_f": round(max(past_temps), 1) if past_temps else None,
-        "precip_total_in": round(sum(past_precip), 2) if past_precip else 0,
-        "wind_avg_mph": round(sum(past_wind) / len(past_wind), 1) if past_wind else None,
+        "temp_min_f": round(min(temps_f), 1) if temps_f else None,
+        "temp_max_f": round(max(temps_f), 1) if temps_f else None,
+        "precip_total_in": round(sum(precips_in), 2) if precips_in else 0,
+        "wind_avg_mph": round(sum(winds_mph) / len(winds_mph), 1) if winds_mph else None,
     }
 
 
@@ -345,7 +362,6 @@ def api_weather_all():
             result[site_id] = data
         except Exception as e:
             result[site_id] = {"error": str(e)}
-        time.sleep(0.5)
     return jsonify(result)
 
 

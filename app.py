@@ -86,6 +86,27 @@ HATCH_CHART = {
     },
 }
 
+ROAD_ACCESS = {
+    "13190500": {
+        "access_road": "South Fork Road (USFS Rd 61) off Hwy 20 near Pine, ID",
+        "agency": "Boise National Forest (USFS)",
+        "notes": "Paved to Anderson Ranch Dam. Upper canyon spur roads are unpaved and may require high-clearance in spring. Gates on upper sections close Nov–Apr.",
+        "conditions_url": "https://www.fs.usda.gov/boise",
+    },
+    "13183000": {
+        "access_road": "Owyhee Reservoir Road off Hwy 201 near Adrian, OR",
+        "agency": "BLM Vale District",
+        "notes": "Paved to dam, dirt BLM roads beyond. Remote canyon access (Rome, Three Forks) requires high-clearance 4WD. Flash flood risk on canyon roads in spring.",
+        "conditions_url": "https://www.blm.gov/office/vale-district-office",
+    },
+    "13150430": {
+        "access_road": "Kilpatrick Road off Hwy 20 near Picabo, ID",
+        "agency": "The Nature Conservancy",
+        "notes": "Hwy 20 is paved year-round. Preserve access roads are gravel. Must check in at the Nature Conservancy visitor center. Some sections are float-tube only.",
+        "conditions_url": "https://www.nature.org/en-us/get-involved/how-to-help/places-we-protect/silver-creek-preserve/",
+    },
+}
+
 RIVER_GUIDE = {
     "13190500": {
         "character": "Tailwater below Anderson Ranch Dam. Cold, consistent 46–48°F year-round. Technical midge and BWO fishery with exceptional stonefly and caddis hatches in summer. Bull trout present — handle with care and release quickly.",
@@ -112,9 +133,10 @@ RIVER_GUIDE = {
 # ---------------------------------------------------------------------------
 
 _cache = {}
-RIVER_TTL = 15 * 60    # 15 minutes
-WEATHER_TTL = 60 * 60  # 60 minutes
+RIVER_TTL = 15 * 60       # 15 minutes
+WEATHER_TTL = 60 * 60     # 60 minutes
 REPORT_TTL = 4 * 60 * 60  # 4 hours
+ROAD_TTL = 12 * 60 * 60   # 12 hours
 
 def cached(key, ttl, fetch_fn):
     entry = _cache.get(key)
@@ -310,6 +332,39 @@ Write a 3–4 sentence fishing report in the style of a knowledgeable local guid
 
 
 # ---------------------------------------------------------------------------
+# Road access report generation
+# ---------------------------------------------------------------------------
+
+def generate_road_access(site_id):
+    river = RIVER_MAP[site_id]
+    access = ROAD_ACCESS.get(site_id, {})
+    month_name = datetime.now().strftime("%B")
+
+    prompt = f"""You are a local guide providing a road access update for {river['full_name']}.
+
+Access details:
+- Access road: {access.get('access_road', 'N/A')}
+- Managing agency: {access.get('agency', 'N/A')}
+- Month: {month_name}
+- Notes: {access.get('notes', '')}
+
+Write 2-3 sentences covering: (1) whether roads are typically open or have seasonal closure risks in {month_name}, (2) any vehicle requirements, (3) one practical access tip. End with a note to verify current status with the managing agency. Be concise and factual."""
+
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=200,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return {
+        "text": response.content[0].text,
+        "access_road": access.get("access_road"),
+        "agency": access.get("agency"),
+        "conditions_url": access.get("conditions_url"),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Flask routes
 # ---------------------------------------------------------------------------
 
@@ -383,6 +438,17 @@ def api_reports(site_id):
         "guide": RIVER_GUIDE.get(site_id, {}),
         "month_name": datetime.now().strftime("%B"),
     })
+
+
+@app.route("/api/road-access/<site_id>")
+def api_road_access(site_id):
+    if site_id not in RIVER_MAP:
+        return jsonify({"error": "Unknown site"}), 404
+    try:
+        data = cached(f"road_{site_id}", ROAD_TTL, lambda: generate_road_access(site_id))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify(data)
 
 
 if __name__ == "__main__":

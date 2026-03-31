@@ -119,10 +119,10 @@
 
             <hr class="my-2">
 
-            <!-- Road Access -->
+            <!-- Traffic Conditions -->
             <div class="report-section" id="road-access-{{ river.id }}">
               <div class="d-flex align-items-center mb-2">
-                <span class="metric-label mb-0 me-2">Road Access</span>
+                <span class="metric-label mb-0 me-2">Traffic Conditions</span>
                 <span class="spinner-border spinner-border-sm text-muted" id="road-spinner-{{ river.id }}"></span>
               </div>
               <div id="road-text-{{ river.id }}" class="report-text" style="display:none"></div>
@@ -395,7 +395,14 @@
         const textEl = document.getElementById(`road-text-${riverId}`);
         const metaEl = document.getElementById(`road-meta-${riverId}`);
         if (textEl && data.text) {
-          textEl.textContent = data.text;
+          const count = (data.incidents || []).length;
+          const incidentBadge = count > 0
+            ? `<span class="badge bg-warning text-dark me-2">${count} incident${count !== 1 ? 's' : ''}</span>`
+            : `<span class="badge bg-success me-2">Clear</span>`;
+          const driveBadge = data.drive_time_min
+            ? `<span class="badge bg-secondary me-2">${data.drive_time_min} min drive</span>`
+            : '';
+          textEl.innerHTML = `${driveBadge}${incidentBadge}${data.text}`;
           textEl.style.display = '';
         }
         if (metaEl && (data.access_road || data.agency)) {
@@ -410,7 +417,7 @@
           metaEl.style.display = '';
         }
       } catch (err) {
-        console.error(`Road access error for ${riverId}:`, err);
+        console.error(`Traffic conditions error for ${riverId}:`, err);
       } finally {
         if (spinner) spinner.remove();
       }

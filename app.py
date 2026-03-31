@@ -1,3 +1,4 @@
+import os
 import time
 import requests
 import anthropic
@@ -136,7 +137,7 @@ _cache = {}
 RIVER_TTL = 15 * 60       # 15 minutes
 WEATHER_TTL = 60 * 60     # 60 minutes
 REPORT_TTL = 4 * 60 * 60  # 4 hours
-ROAD_TTL = 12 * 60 * 60   # 12 hours
+TRAFFIC_TTL = 15 * 60     # 15 minutes
 
 def cached(key, ttl, fetch_fn):
     entry = _cache.get(key)
@@ -332,32 +333,113 @@ Write a 3–4 sentence fishing report in the style of a knowledgeable local guid
 
 
 # ---------------------------------------------------------------------------
-# Road access report generation
+# Traffic conditions (TomTom Traffic Incidents + Routing API)
 # ---------------------------------------------------------------------------
 
-def generate_road_access(site_id):
-    river = RIVER_MAP[site_id]
+# Idaho Angler fly shop, Boise, ID
+ORIGIN_LAT = 43.594
+ORIGIN_LON = -116.213
+ORIGIN_NAME = "Idaho Angler (Boise)"
+
+
+def fetch_traffic(site_id):
+    """Fetch real-time traffic incidents and drive time from Idaho Angler via TomTom."""
     access = ROAD_ACCESS.get(site_id, {})
-    month_name = datetime.now().strftime("%B")
+    river = RIVER_MAP[site_id]
 
-    prompt = f"""You are a local guide providing a road access update for {river['full_name']}.
+    api_key = os.environ.get("TOMTOM_API_KEY", "")
+    if not api_key:
+        return {
+            "text": "No traffic data — set TOMTOM_API_KEY to enable.",
+            "incidents": [],
+            "drive_time_min": None,
+            "origin": ORIGIN_NAME,
+            "access_road": access.get("access_road"),
+            "agency": access.get("agency"),
+            "conditions_url": access.get("conditions_url"),
+        }
 
-Access details:
-- Access road: {access.get('access_road', 'N/A')}
-- Managing agency: {access.get('agency', 'N/A')}
-- Month: {month_name}
-- Notes: {access.get('notes', '')}
+    lat, lon = river["lat"], river["lon"]
+    delta = 0.3  # ~15–20 mile radius
 
-Write 2-3 sentences covering: (1) whether roads are typically open or have seasonal closure risks in {month_name}, (2) any vehicle requirements, (3) one practical access tip. End with a note to verify current status with the managing agency. Be concise and factual."""
+    # Fetch incidents and drive time in parallel
+    fields = "{incidents{properties{iconCategory,magnitudeOfDelay,events{description},from,to,roadNumbers,delay}}}"
 
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=200,
-        messages=[{"role": "user", "content": prompt}],
+    incidents_resp = requests.get(
+        "https://api.tomtom.com/traffic/services/5/incidentDetails",
+        params={
+            "key": api_key,
+            "bbox": f"{lon-delta},{lat-delta},{lon+delta},{lat+delta}",
+            "fields": fields,
+            "language": "en-GB",
+            "timeValidityFilter": "present",
+        },
+        timeout=15,
     )
+    incidents_resp.raise_for_status()
+
+    route_resp = requests.get(
+        f"https://api.tomtom.com/routing/1/calculateRoute/{ORIGIN_LAT},{ORIGIN_LON}:{lat},{lon}/json",
+        params={
+            "key": api_key,
+            "traffic": "true",
+            "travelMode": "car",
+        },
+        timeout=15,
+    )
+    route_resp.raise_for_status()
+
+    # Parse incidents
+    incidents = []
+    for inc in incidents_resp.json().get("incidents", []):
+        props = inc.get("properties", {})
+        events = props.get("events", [])
+        desc = events[0].get("description", "") if events else ""
+        if not desc:
+            continue
+        roads = props.get("roadNumbers", [])
+        delay = props.get("delay") or 0
+        incidents.append({
+            "description": desc,
+            "from": props.get("from", ""),
+            "to": props.get("to", ""),
+            "road": ", ".join(roads) if roads else "",
+            "delay_min": round(delay / 60) if delay else 0,
+            "magnitude": props.get("magnitudeOfDelay", 0),
+        })
+
+    # Parse drive time (seconds → minutes)
+    drive_time_min = None
+    try:
+        summary = route_resp.json()["routes"][0]["summary"]
+        drive_time_min = round(summary["travelTimeInSeconds"] / 60)
+    except (KeyError, IndexError):
+        pass
+
+    # Build summary text
+    parts = []
+    if drive_time_min is not None:
+        parts.append(f"{drive_time_min} min drive from {ORIGIN_NAME}")
+    if not incidents:
+        parts.append("no incidents on route")
+    else:
+        for inc in incidents[:3]:
+            line = inc["description"]
+            if inc["road"]:
+                line += f" on {inc['road']}"
+            if inc["from"] and inc["to"]:
+                line += f" ({inc['from']} to {inc['to']})"
+            if inc["delay_min"] > 0:
+                line += f" — {inc['delay_min']} min delay"
+            parts.append(line)
+
+    text = ". ".join(parts).capitalize() + "."
+
     return {
-        "text": response.content[0].text,
+        "text": text,
+        "incidents": incidents,
+        "drive_time_min": drive_time_min,
+        "origin": ORIGIN_NAME,
         "access_road": access.get("access_road"),
         "agency": access.get("agency"),
         "conditions_url": access.get("conditions_url"),
@@ -445,7 +527,7 @@ def api_road_access(site_id):
     if site_id not in RIVER_MAP:
         return jsonify({"error": "Unknown site"}), 404
     try:
-        data = cached(f"road_{site_id}", ROAD_TTL, lambda: generate_road_access(site_id))
+        data = cached(f"traffic_{site_id}", TRAFFIC_TTL, lambda: fetch_traffic(site_id))
     except Exception as e:
         return jsonify({"error": str(e)}), 502
     return jsonify(data)

@@ -2,7 +2,7 @@ import os
 import time
 import requests
 import anthropic
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from flask import Flask, jsonify, render_template
 
 app = Flask(__name__)
@@ -107,6 +107,66 @@ ROAD_ACCESS = {
         "conditions_url": "https://www.nature.org/en-us/get-involved/how-to-help/places-we-protect/silver-creek-preserve/",
     },
 }
+
+# ---------------------------------------------------------------------------
+# Fishing regulations & seasonal closures
+# Source: IDFG 2025-2027 Fishing Seasons and Rules / ODFW 2026 Regulations
+# ---------------------------------------------------------------------------
+
+REGULATIONS = {
+    "13190500": {
+        "season": "Year-round",
+        "closures": [],
+        "restrictions": "Artificial flies and lures only. Catch and release for bull trout.",
+        "source_url": "https://idfg.idaho.gov/rules/fish",
+    },
+    "13183000": {
+        "season": "Year-round",
+        "closures": [],
+        "restrictions": "Fly fishing only section near dam. Check ODFW for current rules.",
+        "source_url": "https://myodfw.com/fishing/regulations",
+    },
+    "13150430": {
+        "season": "Third Saturday in April through November 30",
+        "closures": [{"type": "third_sat_april_to_nov30"}],
+        "restrictions": "Artificial flies only. Catch and release. Check in at Nature Conservancy visitor center.",
+        "source_url": "https://idfg.idaho.gov/rules/fish",
+    },
+}
+
+
+def _third_saturday_april(year):
+    d = date(year, 4, 1)
+    days_to_sat = (5 - d.weekday()) % 7
+    return d + timedelta(days=days_to_sat + 14)  # +14 = third Saturday
+
+
+def check_regulation_closure(site_id):
+    regs = REGULATIONS.get(site_id, {})
+    today = date.today()
+    is_closed = False
+    closure_reason = None
+
+    for rule in regs.get("closures", []):
+        if rule["type"] == "third_sat_april_to_nov30":
+            open_date = _third_saturday_april(today.year)
+            close_date = date(today.year, 11, 30)
+            if today < open_date:
+                is_closed = True
+                closure_reason = f"Closed — season opens {open_date.strftime('%B %-d, %Y')}"
+            elif today > close_date:
+                is_closed = True
+                next_open = _third_saturday_april(today.year + 1)
+                closure_reason = f"Closed for season — reopens {next_open.strftime('%B %-d, %Y')}"
+
+    return {
+        "is_closed": is_closed,
+        "closure_reason": closure_reason,
+        "season": regs.get("season", "Year-round"),
+        "restrictions": regs.get("restrictions", ""),
+        "source_url": regs.get("source_url", ""),
+    }
+
 
 RIVER_GUIDE = {
     "13190500": {
@@ -519,6 +579,7 @@ def api_reports(site_id):
         "current_hatch": HATCH_CHART.get(site_id, {}).get(month, []),
         "guide": RIVER_GUIDE.get(site_id, {}),
         "month_name": datetime.now().strftime("%B"),
+        "regulations": check_regulation_closure(site_id),
     })
 
 

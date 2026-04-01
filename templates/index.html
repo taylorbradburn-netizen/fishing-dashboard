@@ -33,6 +33,14 @@
           </div>
           <div class="card-body">
 
+            <!-- Regulation closure alert -->
+            <div id="closure-alert-{{ river.id }}" style="display:none" class="alert alert-danger py-2 px-3 mb-3 d-flex justify-content-between align-items-center">
+              <div>
+                <strong>CLOSED</strong> <span id="closure-reason-{{ river.id }}"></span>
+              </div>
+              <a id="closure-link-{{ river.id }}" href="#" target="_blank" class="text-danger small">Regulations</a>
+            </div>
+
             <!-- Flow -->
             <div class="metric-section">
               <div class="metric-label">Current Flow</div>
@@ -376,6 +384,18 @@
         } else {
           const emptyEl = document.getElementById(`report-empty-${riverId}`);
           if (emptyEl) emptyEl.style.display = '';
+        }
+
+        // Regulation closure
+        if (data.regulations) {
+          const alertEl = document.getElementById(`closure-alert-${riverId}`);
+          const reasonEl = document.getElementById(`closure-reason-${riverId}`);
+          const linkEl = document.getElementById(`closure-link-${riverId}`);
+          if (alertEl && data.regulations.is_closed) {
+            if (reasonEl) reasonEl.textContent = `— ${data.regulations.closure_reason}`;
+            if (linkEl && data.regulations.source_url) linkEl.href = data.regulations.source_url;
+            alertEl.style.display = '';
+          }
         }
 
       } catch (err) {

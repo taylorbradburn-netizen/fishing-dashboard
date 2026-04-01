@@ -115,30 +115,28 @@ ROAD_ACCESS = {
 
 REGULATIONS = {
     "13190500": {
-        "season": "Year-round",
-        "closures": [],
+        "season": "Saturday of Memorial Day weekend through March 31",
+        "closures": [{"type": "apr1_to_memorial_day_sat"}],
         "restrictions": "Artificial flies and lures only. Catch and release for bull trout.",
         "source_url": "https://idfg.idaho.gov/rules/fish",
     },
     "13183000": {
-        "season": "Year-round",
-        "closures": [],
         "restrictions": "Fly fishing only section near dam. Check ODFW for current rules.",
         "source_url": "https://myodfw.com/fishing/regulations",
     },
     "13150430": {
-        "season": "Third Saturday in April through November 30",
-        "closures": [{"type": "third_sat_april_to_nov30"}],
-        "restrictions": "Artificial flies only. Catch and release. Check in at Nature Conservancy visitor center.",
+        "restrictions": "Artificial flies only. Catch and release. Float tubes only above Hwy 20 bridge near MP 187.2.",
         "source_url": "https://idfg.idaho.gov/rules/fish",
     },
 }
 
 
-def _third_saturday_april(year):
-    d = date(year, 4, 1)
-    days_to_sat = (5 - d.weekday()) % 7
-    return d + timedelta(days=days_to_sat + 14)  # +14 = third Saturday
+def _memorial_day_saturday(year):
+    """Saturday of Memorial Day weekend (Saturday before Memorial Day Monday)."""
+    d = date(year, 5, 31)
+    while d.weekday() != 0:  # find last Monday in May
+        d -= timedelta(days=1)
+    return d - timedelta(days=2)
 
 
 def check_regulation_closure(site_id):
@@ -148,16 +146,12 @@ def check_regulation_closure(site_id):
     closure_reason = None
 
     for rule in regs.get("closures", []):
-        if rule["type"] == "third_sat_april_to_nov30":
-            open_date = _third_saturday_april(today.year)
-            close_date = date(today.year, 11, 30)
-            if today < open_date:
+        if rule["type"] == "apr1_to_memorial_day_sat":
+            open_date = _memorial_day_saturday(today.year)
+            close_start = date(today.year, 4, 1)
+            if close_start <= today < open_date:
                 is_closed = True
                 closure_reason = f"Closed — season opens {open_date.strftime('%B %-d, %Y')}"
-            elif today > close_date:
-                is_closed = True
-                next_open = _third_saturday_april(today.year + 1)
-                closure_reason = f"Closed for season — reopens {next_open.strftime('%B %-d, %Y')}"
 
     return {
         "is_closed": is_closed,

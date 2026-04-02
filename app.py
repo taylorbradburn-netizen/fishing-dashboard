@@ -127,6 +127,11 @@ REGULATIONS = {
     "13150430": {
         "restrictions": "Artificial flies only. Catch and release. Float tubes only above Hwy 20 bridge near MP 187.2.",
         "source_url": "https://idfg.idaho.gov/rules/fish",
+        "reg_sections": [
+            {"name": "Mouth to Hwy 20 bridge (MP 187.2)", "dates": "Open all year"},
+            {"name": "Hwy 20 bridge (MP 187.2) to Grove/Stalker Creek confluence", "dates": "Open: Sat of Memorial Day weekend – Nov 30 · Closed: Dec 1 – Fri before Memorial Day"},
+            {"name": "Kilpatrick Pond dam to Kilpatrick Bridge", "dates": "Open: Sat of Memorial Day weekend – Mar 31 · Closed: Apr 1 – Fri before Memorial Day"},
+        ],
     },
 }
 
@@ -573,7 +578,10 @@ def api_reports(site_id):
         "current_hatch": HATCH_CHART.get(site_id, {}).get(month, []),
         "guide": RIVER_GUIDE.get(site_id, {}),
         "month_name": datetime.now().strftime("%B"),
-        "regulations": check_regulation_closure(site_id),
+        "regulations": {
+            **check_regulation_closure(site_id),
+            "reg_sections": REGULATIONS.get(site_id, {}).get("reg_sections", []),
+        },
     })
 
 

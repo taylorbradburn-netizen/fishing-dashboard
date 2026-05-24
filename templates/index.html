@@ -3,110 +3,126 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fly Fishing Dashboard</title>
+  <title>TB's Custom Fishing Report</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div class="container-fluid px-4 py-3">
-    <div class="d-flex align-items-center justify-content-between mb-4">
+  <header class="site-header">
+    <div class="d-flex align-items-center justify-content-between">
       <div>
-        <h1 class="mb-0">Fly Fishing Dashboard</h1>
-        <small class="text-muted" id="last-updated">Loading...</small>
+        <h1 class="mb-0">TB's Custom Fishing Report</h1>
+        <small id="last-updated">Loading...</small>
       </div>
-      <button class="btn btn-outline-secondary btn-sm" id="refresh-btn" onclick="loadAll()">Refresh</button>
+      <button class="btn btn-refresh btn-sm" id="refresh-btn" onclick="loadAll()">Refresh</button>
     </div>
+  </header>
 
-    <div class="row g-4" id="river-cards">
+  <div class="container-fluid px-4 py-3">
+    <div class="river-list" id="river-cards">
       {% for river in rivers %}
-      <div class="col-12 col-xl-4">
-        <div class="card h-100 river-card" id="card-{{ river.id }}">
-          <div class="card-header">
-            <div class="d-flex justify-content-between align-items-start">
-              <div>
-                <h5 class="mb-0">{{ river.name }}</h5>
-                <small class="text-muted">{{ river.full_name }}</small>
-              </div>
-              <span class="badge condition-badge" id="condition-{{ river.id }}">—</span>
-            </div>
-          </div>
-          <div class="card-body">
+      <div class="river-card" id="card-{{ river.id }}">
 
-            <!-- Regulation seasons -->
-            <div id="reg-sections-{{ river.id }}" class="d-none mb-3 small text-muted border-start border-2 ps-2"></div>
+        <!-- River Photo -->
+        <div class="river-photo"
+             style="background-image: url('{{ url_for('static', filename='images/' + river.image_file) }}'), {{ river.photo_gradient }}; background-size: cover, 100% 100%; background-position: center, center;">
+          <div class="river-photo-overlay"></div>
+          <div class="river-photo-label">
+            <div class="river-photo-name">{{ river.name }}</div>
+            <div class="river-photo-sub">{{ river.full_name }}</div>
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div class="river-content">
+
+          <!-- Content Header -->
+          <div class="river-content-header">
+            <span class="badge condition-badge" id="condition-{{ river.id }}">—</span>
 
             <!-- Regulation closure alert -->
-            <div id="closure-alert-{{ river.id }}" class="alert alert-danger py-2 px-3 mb-3 d-none justify-content-between align-items-center">
-              <div>
-                <strong>CLOSED</strong> <span id="closure-reason-{{ river.id }}"></span>
-              </div>
-              <a id="closure-link-{{ river.id }}" href="#" target="_blank" class="text-danger small">Regulations</a>
+            <div id="closure-alert-{{ river.id }}" class="alert alert-danger py-1 px-2 mb-0 d-none align-items-center" style="font-size:0.78rem;">
+              <strong>CLOSED</strong>&nbsp;<span id="closure-reason-{{ river.id }}"></span>
+              &nbsp;<a id="closure-link-{{ river.id }}" href="#" target="_blank" class="text-danger">Regs</a>
             </div>
+
+            <!-- Regulation seasons -->
+            <div id="reg-sections-{{ river.id }}" class="d-none small border-start border-2 ps-2"></div>
+          </div>
+
+          <!-- Metrics Row -->
+          <div class="metrics-row">
 
             <!-- Flow -->
-            <div class="metric-section">
+            <div class="metric-col">
               <div class="metric-label">Current Flow</div>
               <div class="metric-value" id="cfs-{{ river.id }}">
-                <span class="spinner-border spinner-border-sm text-muted"></span>
+                <span class="spinner-border spinner-border-sm"></span>
+              </div>
+              <div class="chart-container mt-2">
+                <canvas id="flow-chart-{{ river.id }}"></canvas>
               </div>
             </div>
 
-            <div class="chart-container mb-3">
-              <canvas id="flow-chart-{{ river.id }}"></canvas>
-            </div>
-
-            <!-- Barometric Pressure -->
-            <div class="metric-section">
-              <div class="d-flex justify-content-between align-items-center">
+            <!-- Pressure -->
+            <div class="metric-col">
+              <div class="d-flex justify-content-between align-items-start">
                 <div>
                   <div class="metric-label">Barometric Pressure</div>
                   <div class="metric-value-sm" id="pressure-{{ river.id }}">—</div>
                 </div>
                 <span class="badge trend-badge" id="trend-{{ river.id }}">—</span>
               </div>
-            </div>
-
-            <div class="chart-container chart-sm mb-3">
-              <canvas id="pressure-chart-{{ river.id }}"></canvas>
-            </div>
-
-            <!-- Weather Stats -->
-            <div class="weather-grid mb-3">
-              <div class="weather-stat">
-                <div class="weather-label">Temp Range (7d)</div>
-                <div class="weather-value" id="temp-{{ river.id }}">—</div>
-              </div>
-              <div class="weather-stat">
-                <div class="weather-label">Precipitation (7d)</div>
-                <div class="weather-value" id="precip-{{ river.id }}">—</div>
-              </div>
-              <div class="weather-stat">
-                <div class="weather-label">Avg Wind</div>
-                <div class="weather-value" id="wind-{{ river.id }}">—</div>
-              </div>
-              <div class="weather-stat">
-                <div class="weather-label">Water Temp</div>
-                <div class="weather-value" id="wtemp-{{ river.id }}">—</div>
+              <div class="chart-container chart-sm mt-2">
+                <canvas id="pressure-chart-{{ river.id }}"></canvas>
               </div>
             </div>
 
-            <hr class="my-2">
+            <!-- Weather -->
+            <div class="metric-col">
+              <div class="metric-label">Conditions (7 days)</div>
+              <div class="weather-grid">
+                <div class="weather-stat">
+                  <div class="weather-label">Temp Range</div>
+                  <div class="weather-value" id="temp-{{ river.id }}">—</div>
+                </div>
+                <div class="weather-stat">
+                  <div class="weather-label">Precipitation</div>
+                  <div class="weather-value" id="precip-{{ river.id }}">—</div>
+                </div>
+                <div class="weather-stat">
+                  <div class="weather-label">Avg Wind</div>
+                  <div class="weather-value" id="wind-{{ river.id }}">—</div>
+                </div>
+                <div class="weather-stat">
+                  <div class="weather-label">Water Temp</div>
+                  <div class="weather-value" id="wtemp-{{ river.id }}">—</div>
+                </div>
+              </div>
+            </div>
 
-            <!-- Fishing Report Section -->
-            <div class="report-section" id="report-{{ river.id }}">
+          </div><!-- /metrics-row -->
+
+          <div class="section-divider"></div>
+
+          <!-- Reports Row -->
+          <div class="reports-row">
+
+            <!-- Fishing Report -->
+            <div class="report-col" id="report-{{ river.id }}">
               <div class="d-flex align-items-center mb-2">
                 <span class="metric-label mb-0 me-2">Fishing Report</span>
-                <span class="spinner-border spinner-border-sm text-muted" id="report-spinner-{{ river.id }}"></span>
+                <span class="spinner-border spinner-border-sm" id="report-spinner-{{ river.id }}"></span>
               </div>
 
-              <!-- Current Hatch -->
               <div class="mb-2" id="hatch-block-{{ river.id }}" style="display:none">
                 <div class="report-label" id="hatch-month-{{ river.id }}">Current Hatch</div>
                 <div id="hatch-flies-{{ river.id }}" class="hatch-list"></div>
               </div>
 
-              <!-- River Character -->
               <div class="mb-2" id="guide-block-{{ river.id }}" style="display:none">
                 <div class="report-label">River Character</div>
                 <div class="river-char" id="guide-char-{{ river.id }}"></div>
@@ -114,7 +130,6 @@
                 <div class="river-notes" id="guide-notes-{{ river.id }}"></div>
               </div>
 
-              <!-- Live Report -->
               <div id="live-report-block-{{ river.id }}" style="display:none">
                 <div class="d-flex justify-content-between align-items-baseline">
                   <div class="report-label">Latest Report</div>
@@ -123,26 +138,22 @@
                 <div class="report-text" id="live-report-text-{{ river.id }}"></div>
               </div>
 
-              <div class="text-muted small" id="report-empty-{{ river.id }}" style="display:none">
-                No recent report found.
-              </div>
+              <div class="text-muted small" id="report-empty-{{ river.id }}" style="display:none">No recent report found.</div>
             </div>
 
-            <hr class="my-2">
-
             <!-- Traffic Conditions -->
-            <div class="report-section" id="road-access-{{ river.id }}">
+            <div class="report-col" id="road-access-{{ river.id }}">
               <div class="d-flex align-items-center mb-2">
                 <span class="metric-label mb-0 me-2">Traffic Conditions</span>
-                <span class="spinner-border spinner-border-sm text-muted" id="road-spinner-{{ river.id }}"></span>
+                <span class="spinner-border spinner-border-sm" id="road-spinner-{{ river.id }}"></span>
               </div>
               <div id="road-text-{{ river.id }}" class="report-text" style="display:none"></div>
               <div id="road-meta-{{ river.id }}" class="text-muted small mt-1" style="display:none"></div>
             </div>
 
-          </div>
-        </div>
-      </div>
+          </div><!-- /reports-row -->
+        </div><!-- /river-content -->
+      </div><!-- /river-card -->
       {% endfor %}
     </div>
   </div>
@@ -161,8 +172,8 @@
           labels,
           datasets: [{
             data,
-            borderColor: '#2c7be5',
-            backgroundColor: 'rgba(44,123,229,0.1)',
+            borderColor: '#b53320',
+            backgroundColor: 'rgba(181,51,32,0.1)',
             borderWidth: 2,
             fill: true,
             tension: 0.3,
@@ -207,8 +218,8 @@
           labels,
           datasets: [{
             data,
-            borderColor: '#6f42c1',
-            backgroundColor: 'rgba(111,66,193,0.08)',
+            borderColor: '#2e6050',
+            backgroundColor: 'rgba(46,96,80,0.1)',
             borderWidth: 1.5,
             fill: true,
             tension: 0.3,

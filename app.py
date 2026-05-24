@@ -1,5 +1,7 @@
 import os
+import json
 import time
+import threading
 import requests
 import anthropic
 from datetime import datetime, timedelta, timezone, date
@@ -199,10 +201,28 @@ RIVER_GUIDE = {
 # ---------------------------------------------------------------------------
 
 _cache = {}
-RIVER_TTL = 15 * 60       # 15 minutes
-WEATHER_TTL = 60 * 60     # 60 minutes
-REPORT_TTL = 4 * 60 * 60  # 4 hours
-TRAFFIC_TTL = 15 * 60     # 15 minutes
+RIVER_TTL   = 15 * 60        # 15 minutes
+WEATHER_TTL = 60 * 60        # 60 minutes
+REPORT_TTL  = 24 * 60 * 60   # 24 hours
+TRAFFIC_TTL = 15 * 60        # 15 minutes
+
+REPORT_CACHE_FILE = "/tmp/fishing_report_cache.json"
+
+def _load_report_file_cache():
+    try:
+        with open(REPORT_CACHE_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_report_file_cache(cache):
+    try:
+        with open(REPORT_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+_report_file_cache = _load_report_file_cache()
 
 def cached(key, ttl, fetch_fn):
     entry = _cache.get(key)
@@ -211,6 +231,25 @@ def cached(key, ttl, fetch_fn):
     data = fetch_fn()
     _cache[key] = {"ts": time.time(), "data": data}
     return data
+
+def cached_report(site_id):
+    entry = _report_file_cache.get(site_id)
+    if entry and (time.time() - entry["ts"]) < REPORT_TTL:
+        return entry["data"]
+    data = generate_report(site_id)
+    _report_file_cache[site_id] = {"ts": time.time(), "data": data}
+    _save_report_file_cache(_report_file_cache)
+    return data
+
+def _prewarm_reports():
+    time.sleep(8)  # wait for app to finish starting
+    for river in RIVERS:
+        try:
+            cached_report(river["id"])
+        except Exception as e:
+            print(f"Prewarm failed for {river['id']}: {e}")
+
+threading.Thread(target=_prewarm_reports, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -573,7 +612,7 @@ def api_reports(site_id):
         return jsonify({"error": "Unknown site"}), 404
 
     try:
-        live_report = cached(f"report_{site_id}", REPORT_TTL, lambda: generate_report(site_id))
+        live_report = cached_report(site_id)
     except Exception as e:
         print(f"Report generation error ({site_id}): {e}")
         live_report = None

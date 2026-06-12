@@ -41,6 +41,15 @@ RIVERS = [
         "image_file": "silver-creek.jpg",
         "photo_gradient": "linear-gradient(160deg, #1a3a4a 0%, #2a6868 50%, #1e4a3a 100%)",
     },
+    {
+        "id": "13206000",
+        "name": "Boise River in Town",
+        "full_name": "Boise River at Glenwood Bridge, Garden City, ID",
+        "lat": 43.6606,
+        "lon": -116.2792,
+        "image_file": "boise-river-town.jpg",
+        "photo_gradient": "linear-gradient(160deg, #1e3a28 0%, #3a6b3a 50%, #2a5a6e 100%)",
+    },
 ]
 
 RIVER_MAP = {r["id"]: r for r in RIVERS}
@@ -93,6 +102,20 @@ HATCH_CHART = {
         11: ["BWO #20-22", "Midge #18-22"],
         12: ["Midge #18-22"],
     },
+    "13206000": {
+        1:  ["Midge #18-22 (Zebra Midge, Griffith's Gnat)"],
+        2:  ["Midge #18-22", "BWO #18-20"],
+        3:  ["BWO #18-20", "Midge #18-22", "Skwala Stonefly (size 10-12)"],
+        4:  ["BWO #18-20", "Caddis #14-16 (Mother's Day Caddis)"],
+        5:  ["Caddis #14-16", "PMD #16-18", "BWO #18-20"],
+        6:  ["Caddis #14-16", "PMD #16-18", "Golden Stone #8-10"],
+        7:  ["PMD #16-18", "Hopper/Terrestrials #6-12", "Caddis #14-16"],
+        8:  ["Hopper/Ants/Beetles #6-14", "Trico #18-20", "Caddis #14-16"],
+        9:  ["BWO #18-20", "Hopper/Terrestrials", "Trico #18-20"],
+        10: ["BWO #18-20", "Midge #18-22"],
+        11: ["Midge #18-22", "BWO #18-20"],
+        12: ["Midge #18-22"],
+    },
 }
 
 ROAD_ACCESS = {
@@ -113,6 +136,12 @@ ROAD_ACCESS = {
         "agency": "The Nature Conservancy",
         "notes": "Hwy 20 is paved year-round. Preserve access roads are gravel. Must check in at the Nature Conservancy visitor center. Some sections are float-tube only.",
         "conditions_url": "https://www.nature.org/en-us/get-involved/how-to-help/places-we-protect/silver-creek-preserve/",
+    },
+    "13206000": {
+        "access_road": "Boise River Greenbelt — Barber Park, Ann Morrison Park, Eagle Island, and many bridge accesses",
+        "agency": "City of Boise Parks & Recreation / Ada County",
+        "notes": "Paved Greenbelt path year-round with frequent street and park access points right through downtown. No special access requirements — easiest fishing of any river on this list.",
+        "conditions_url": "https://www.cityofboise.org/departments/parks-and-recreation/parks-and-trails/boise-river-greenbelt/",
     },
 }
 
@@ -140,6 +169,11 @@ REGULATIONS = {
             {"name": "Hwy 20 bridge (MP 187.2) to Grove/Stalker Creek confluence", "dates": "Open: Sat of Memorial Day weekend – Nov 30 · Closed: Dec 1 – Fri before Memorial Day"},
             {"name": "Kilpatrick Pond dam to Kilpatrick Bridge", "dates": "Open: Sat of Memorial Day weekend – Mar 31 · Closed: Apr 1 – Fri before Memorial Day"},
         ],
+    },
+    "13206000": {
+        "season": "Open year-round through the city reach",
+        "restrictions": "General statewide trout limits apply. Some stretches between Barber Dam and Eagle Island have special regulations protecting wild rainbow and brown trout — check current rules before keeping fish.",
+        "source_url": "https://idfg.idaho.gov/rules/fish",
     },
 }
 
@@ -193,6 +227,12 @@ RIVER_GUIDE = {
         "techniques": "Dry fly during hatches (observe rises carefully before casting). Nymph when no surface activity. Terrestrials on windy summer days. Float tubes required in S-Turns section. Early morning and evening most productive.",
         "species": "Wild rainbow & brown trout. C&R fly fishing only, barbless hooks.",
         "notes": "Check in at Nature Conservancy visitor center at the Preserve. Some sections float-tube only.",
+    },
+    "13206000": {
+        "character": "Urban tailwater fed by Lucky Peak Dam releases, flowing through the heart of Boise alongside the Greenbelt. Flows run low and clear in winter (~250-400 CFS) and rise sharply with irrigation releases in summer. A reliable year-round option when other rivers are blown out, low, or iced up.",
+        "techniques": "Winter/spring: small midge and BWO nymphs under an indicator. Spring: Mother's Day caddis brings dry-dropper action. Summer: hopper-dropper along grassy banks and seams; streamers near bridge pilings and undercut banks for browns. Wading is easy at most access points.",
+        "species": "Rainbow trout (wild & stocked), brown trout, mountain whitefish",
+        "notes": "Best year-round access of any river here — dozens of Greenbelt entry points from Barber Park to Eagle Island. Watch for tubers/paddleboarders on hot summer days.",
     },
 }
 
